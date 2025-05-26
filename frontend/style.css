@@ -28,14 +28,59 @@ body {
 
 header {
     display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.header-top {
+    display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 30px;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 15px 0;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 20px;
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    gap: 20px;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.notifications {
+    position: relative;
+    margin-left: auto;
+}
+
+.filters {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    margin-top: 10px;
 }
 
 h1 {
     color: var(--dark);
     font-size: 28px;
+    display: flex;
+    align-items: center;
 }
 
 h1 i {
@@ -43,9 +88,76 @@ h1 i {
     color: var(--primary);
 }
 
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-info span {
+    font-weight: 500;
+    color: var(--dark);
+}
+
+.logout-btn {
+    background: none;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 4px;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.9rem;
+}
+
+.logout-btn:hover {
+    background-color: var(--danger);
+    color: white;
+}
+
+.notifications {
+    position: relative;
+}
+
+.notifications-container {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background-color: white;
+    min-width: 300px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    border-radius: 8px;
+    padding: 15px;
+    z-index: 100;
+}
+
+.notifications-container h3 {
+    font-size: 16px;
+    margin-bottom: 10px;
+    color: var(--dark);
+}
+
+.notifications-container ul {
+    list-style: none;
+}
+
+.notifications-container li {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.notifications-container li:last-child {
+    border-bottom: none;
+}
+
 .filters {
     display: flex;
     gap: 10px;
+    flex-wrap: wrap;
 }
 
 select, button {
@@ -53,6 +165,7 @@ select, button {
     border-radius: 5px;
     border: 1px solid #ddd;
     font-size: 14px;
+    min-height: 40px;
 }
 
 button {
@@ -65,6 +178,20 @@ button {
 
 button:hover {
     background-color: #2980b9;
+}
+
+.btn-admin {
+    background-color: var(--dark);
+    margin-right: 10px;
+}
+
+.btn-admin:hover {
+    background-color: #1a252f;
+}
+
+#adminMenu {
+    display: none;
+    margin-top: 10px;
 }
 
 .stats {
@@ -97,6 +224,10 @@ button:hover {
 .due-soon { border-top: 4px solid var(--primary); }
 .overdue { border-top: 4px solid var(--danger); }
 
+.table-container {
+    overflow-x: auto;
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
@@ -126,30 +257,49 @@ tr.enviado {
     background-color: rgba(46, 204, 113, 0.1);
 }
 
-tr.overdue {
+tr.vencida {
     background-color: rgba(231, 76, 60, 0.1);
 }
 
-tr.due-soon {
+tr.proximo {
     background-color: rgba(241, 196, 15, 0.1);
 }
 
 .actions {
     display: flex;
     gap: 5px;
+    flex-wrap: wrap;
 }
 
-.actions button {
+.actions button, .actions a {
     padding: 5px 10px;
     font-size: 12px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    text-decoration: none;
+}
+
+.actions a {
+    background-color: var(--primary);
+    color: white;
 }
 
 .btn-edit {
     background-color: var(--primary);
 }
 
-.btn-mark {
+.btn-enviar {
     background-color: var(--success);
+}
+
+.btn-delete {
+    background-color: var(--danger);
+}
+
+.btn-view {
+    background-color: var(--dark);
 }
 
 .modal {
@@ -161,6 +311,7 @@ tr.due-soon {
     width: 100%;
     height: 100%;
     background-color: rgba(0,0,0,0.5);
+    overflow: auto;
 }
 
 .modal-content {
@@ -197,33 +348,233 @@ tr.due-soon {
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
     width: 100%;
     padding: 10px;
     border: 1px solid #ddd;
     border-radius: 5px;
+    font-size: 14px;
 }
 
-#btnSubmit {
+.form-group input[type="file"] {
+    padding: 5px;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.btn-cancel {
+    background-color: #95a5a6;
+}
+
+.btn-cancel:hover {
+    background-color: #7f8c8d;
+}
+
+.btn-submit {
+    background-color: var(--success);
+}
+
+.btn-submit:hover {
+    background-color: #27ae60;
+}
+
+#envioFields {
+    display: none;
+}
+
+#loadingIndicator {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
     width: 100%;
-    padding: 12px;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+}
+
+.loading-spinner {
+    border: 5px solid #f3f3f3;
+    border-top: 5px solid var(--primary);
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 15px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+#loadingIndicator p {
+    color: white;
+    font-size: 18px;
     margin-top: 10px;
-    font-size: 16px;
+}
+
+.error-message {
+    color: var(--danger);
+    margin-top: 15px;
+    font-size: 14px;
+}
+
+/* Estilos para a tabela de usuários */
+#tabelaUsuarios {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+#tabelaUsuarios th, #tabelaUsuarios td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+#tabelaUsuarios th {
+    background-color: #f5f5f5;
+    font-weight: 600;
+}
+
+.btn-action {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.btn-action.delete {
+    background-color: var(--danger);
+    color: white;
+}
+
+.btn-action.delete:hover:not(:disabled) {
+    background-color: #c0392b;
+}
+
+.btn-action.delete:disabled {
+    background-color: #95a5a6;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Estilos para os toasts */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 15px 25px;
+    border-radius: 4px;
+    color: white;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideIn 0.3s, fadeOut 0.5s 4.5s forwards;
+}
+
+.toast-success {
+    background-color: var(--success);
+}
+
+.toast-error {
+    background-color: var(--danger);
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
 }
 
 @media (max-width: 768px) {
-    header {
+    .header-top {
         flex-direction: column;
         align-items: flex-start;
-        gap: 15px;
     }
     
     .stats {
         grid-template-columns: 1fr;
     }
     
-    table {
-        display: block;
-        overflow-x: auto;
+    .filters {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .filters select, .filters button {
+        width: 100%;
+    }
+    
+    #adminMenu {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .actions {
+        flex-direction: column;
+    }
+}
+
+/* Ajustes para o menu admin */
+#adminMenu {
+    display: none;
+    width: 100%;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+#adminMenu button {
+    margin-right: 10px;
+}
+
+/* Ajustes para telas menores */
+@media (max-width: 992px) {
+    .header-content {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .header-right {
+        width: 100%;
+        justify-content: space-between;
+        margin-top: 10px;
+    }
+    
+    .notifications {
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 576px) {
+    .header-right {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .filters {
+        flex-direction: column;
+    }
+    
+    .filters select, 
+    .filters button {
+        width: 100%;
     }
 }

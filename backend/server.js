@@ -8,6 +8,9 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -19,19 +22,34 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 // Configuração do CORS
 const corsOptions = {
-  origin: ['http://localhost:8080', 'https://seu-app.onrender.com'],
+  origin: [
+    'http://localhost:8080', 
+    'http://127.0.0.1:5500',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://seu-app.onrender.com'
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
-
-
 app.options('*', cors(corsOptions));
+
+// Middleware de log para debug
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  if (req.body && Object.keys(req.body).length > 0) {
+    console.log('Body:', req.body);
+  }
+  next();
+});
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100 // limite de 100 requisições por IP
+  windowMs: 15 * 60 * 1000,
+  max: 100
 });
 app.use(limiter);
 
@@ -53,17 +71,13 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // Limite de 5MB
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const filetypes = /jpeg|jpg|png|pdf/;
     const mimetype = filetypes.test(file.mimetype);
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
     
-    if (mimetype && extname) {
-      return cb(null, true);
-    }
+    if (mimetype && extname) return cb(null, true);
     cb(new Error('Apenas arquivos PDF, JPG, JPEG ou PNG são permitidos'));
   }
 });
@@ -71,7 +85,9 @@ const upload = multer({
 // Inicialização do banco de dados
 async function setupDatabase() {
   const db = await open({
-    filename: './database.sqlite',
+    filename: process.env.NODE_ENV === 'production' 
+      ? '/data/database.sqlite' 
+      : './database.sqlite',
     driver: sqlite3.Database
   });
 
@@ -101,6 +117,16 @@ async function setupDatabase() {
     );
   `);
 
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      is_admin BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Inserir operadoras padrão
   const count = await db.get('SELECT COUNT(*) as count FROM operadoras');
   if (count.count === 0) {
@@ -122,30 +148,169 @@ async function setupDatabase() {
     }
   }
 
+  // Inserir usuário admin padrão
+  const adminExists = await db.get('SELECT 1 FROM usuarios WHERE username = "admin"');
+  if (!adminExists) {
+    const hashedPassword = await bcrypt.hash("admin123", 10);
+    await db.run(
+      'INSERT INTO usuarios (username, password_hash, is_admin) VALUES (?, ?, ?)',
+      ['admin', hashedPassword, true]
+    );
+    console.log('Usuário admin criado com senha: admin123');
+  }
+
   return db;
+}
+
+// Middleware de autenticação
+function authenticate(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ 
+      error: 'Token de acesso não fornecido',
+      solution: 'Inclua o token no header Authorization: Bearer <token>'
+    });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ 
+        error: 'Token inválido ou expirado',
+        details: err.message
+      });
+    }
+    req.user = user;
+    next();
+  });
+}
+
+// Middleware para verificar admin
+function isAdmin(req, res, next) {
+    if (!req.user.isAdmin) {
+        return res.status(403).json({ 
+            error: 'Acesso restrito a administradores',
+            user: req.user
+        });
+    }
+    next();
 }
 
 // Rotas da API
 async function setupRoutes(db) {
-  // Middleware de verificação do banco
+  // Middleware para injetar db nas requisições
   app.use((req, res, next) => {
     req.db = db;
     next();
   });
 
-  // Health Check
-  app.get('/api/health', (req, res) => {
+  // Rota de login
+  app.post('/api/login', async (req, res) => {
+    try {
+      if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ error: 'Corpo da requisição vazio ou inválido' });
+      }
+
+      const { username, password } = req.body;
+      
+      if (!username || !password) {
+        return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+      }
+
+      const user = await db.get('SELECT * FROM usuarios WHERE username = ?', [username]);
+      
+      if (!user) {
+        return res.status(401).json({ error: 'Credenciais inválidas' });
+      }
+
+      const passwordMatch = await bcrypt.compare(password, user.password_hash);
+      
+      if (!passwordMatch) {
+        return res.status(401).json({ error: 'Credenciais inválidas' });
+      }
+
+      const token = jwt.sign(
+        { 
+          id: user.id, 
+          username: user.username, 
+          isAdmin: user.is_admin 
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: '8h' }
+      );
+
+      res.json({ 
+        token,
+        user: {
+          id: user.id,
+          username: user.username,
+          isAdmin: user.is_admin
+        }
+      });
+
+    } catch (err) {
+      console.error('Erro no login:', err);
+      res.status(500).json({ error: 'Erro ao processar login' });
+    }
+  });
+
+  // Rota para verificar token
+  app.get('/api/validate-token', authenticate, (req, res) => {
     res.json({ 
-      status: 'OK', 
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development'
+      valid: true,
+      user: req.user
     });
   });
 
-  // Operadoras
-  app.get('/api/operadoras', async (req, res) => {
+  // Rotas de usuários
+app.post('/api/usuarios', authenticate, isAdmin, async (req, res) => {
     try {
-      const operadoras = await req.db.all('SELECT * FROM operadoras ORDER BY nome');
+        const { username, password, isAdmin } = req.body;
+        
+        if (!username || !password) {
+            return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+        }
+
+        // Verifica se o usuário já existe
+        const existingUser = await db.get('SELECT 1 FROM usuarios WHERE username = ?', [username]);
+        if (existingUser) {
+            return res.status(400).json({ error: 'Usuário já existe' });
+        }
+
+        // Criptografa a senha
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        // Insere no banco de dados
+        const { lastID } = await db.run(
+            'INSERT INTO usuarios (username, password_hash, is_admin) VALUES (?, ?, ?)',
+            [username, hashedPassword, Boolean(isAdmin)]
+        );
+
+        // Retorna o novo usuário (sem a senha)
+        const newUser = await db.get('SELECT id, username, is_admin FROM usuarios WHERE id = ?', [lastID]);
+        res.status(201).json(newUser);
+
+    } catch (err) {
+        console.error('Erro ao criar usuário:', err);
+        res.status(500).json({ error: 'Erro ao criar usuário' });
+    }
+});
+
+  app.get('/api/usuarios', authenticate, isAdmin, async (req, res) => {
+    try {
+      const users = await db.all('SELECT id, username, is_admin, created_at FROM usuarios');
+      res.json(users);
+    } catch (err) {
+      console.error('Erro ao listar usuários:', err);
+      res.status(500).json({ error: 'Erro ao listar usuários' });
+    }
+  });
+
+  // Rotas de operadoras
+  app.get('/api/operadoras', authenticate, async (req, res) => {
+    try {
+      const operadoras = await db.all('SELECT * FROM operadoras ORDER BY nome');
       res.json(operadoras);
     } catch (err) {
       console.error('Erro ao buscar operadoras:', err);
@@ -153,8 +318,8 @@ async function setupRoutes(db) {
     }
   });
 
-  // Faturas com filtros
-  app.get('/api/faturas', async (req, res) => {
+  // Rotas de faturas
+  app.get('/api/faturas', authenticate, async (req, res) => {
     try {
       let query = `
         SELECT 
@@ -193,7 +358,7 @@ async function setupRoutes(db) {
 
       query += ' ORDER BY f.vencimento ASC';
 
-      const faturas = await req.db.all(query, params);
+      const faturas = await db.all(query, params);
       res.json(faturas);
     } catch (err) {
       console.error('Erro ao buscar faturas:', err);
@@ -201,24 +366,21 @@ async function setupRoutes(db) {
     }
   });
 
-  // Criar fatura
-  app.post('/api/faturas', async (req, res) => {
+  app.post('/api/faturas', authenticate, async (req, res) => {
     try {
       const { operadora_id, referencia, valor, vencimento } = req.body;
-
+      
       if (!operadora_id || !referencia || !valor || !vencimento) {
         return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
       }
 
-      const { lastID } = await req.db.run(
+      const { lastID } = await db.run(
         'INSERT INTO faturas (operadora_id, referencia, valor, vencimento) VALUES (?, ?, ?, ?)',
-        [operadora_id, referencia, parseFloat(valor), vencimento]
+        [operadora_id, referencia, valor, vencimento]
       );
 
-      const novaFatura = await req.db.get(
-        `SELECT f.*, o.nome AS operadora_nome FROM faturas f 
-         JOIN operadoras o ON f.operadora_id = o.id 
-         WHERE f.id = ?`,
+      const novaFatura = await db.get(
+        'SELECT f.*, o.nome AS operadora_nome FROM faturas f JOIN operadoras o ON f.operadora_id = o.id WHERE f.id = ?',
         [lastID]
       );
 
@@ -229,25 +391,42 @@ async function setupRoutes(db) {
     }
   });
 
-  // Atualizar fatura
-  app.put('/api/faturas/:id', async (req, res) => {
+  app.get('/api/faturas/:id', authenticate, async (req, res) => {
     try {
       const { id } = req.params;
-      const { operadora_id, referencia, valor, vencimento } = req.body;
-
-      const { changes } = await req.db.run(
-        'UPDATE faturas SET operadora_id = ?, referencia = ?, valor = ?, vencimento = ? WHERE id = ?',
-        [operadora_id, referencia, parseFloat(valor), vencimento, id]
+      
+      const fatura = await db.get(
+        'SELECT f.*, o.nome AS operadora_nome FROM faturas f JOIN operadoras o ON f.operadora_id = o.id WHERE f.id = ?',
+        [id]
       );
 
-      if (changes === 0) {
+      if (!fatura) {
         return res.status(404).json({ error: 'Fatura não encontrada' });
       }
 
-      const faturaAtualizada = await req.db.get(
-        `SELECT f.*, o.nome AS operadora_nome FROM faturas f 
-         JOIN operadoras o ON f.operadora_id = o.id 
-         WHERE f.id = ?`,
+      res.json(fatura);
+    } catch (err) {
+      console.error('Erro ao buscar fatura:', err);
+      res.status(500).json({ error: 'Erro ao buscar fatura' });
+    }
+  });
+
+  app.put('/api/faturas/:id', authenticate, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { operadora_id, referencia, valor, vencimento } = req.body;
+      
+      if (!operadora_id || !referencia || !valor || !vencimento) {
+        return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+      }
+
+      await db.run(
+        'UPDATE faturas SET operadora_id = ?, referencia = ?, valor = ?, vencimento = ? WHERE id = ?',
+        [operadora_id, referencia, valor, vencimento, id]
+      );
+
+      const faturaAtualizada = await db.get(
+        'SELECT f.*, o.nome AS operadora_nome FROM faturas f JOIN operadoras o ON f.operadora_id = o.id WHERE f.id = ?',
         [id]
       );
 
@@ -258,98 +437,67 @@ async function setupRoutes(db) {
     }
   });
 
-  // Marcar como enviada
-  app.put('/api/faturas/:id/enviar', upload.single('comprovante'), async (req, res) => {
+  app.put('/api/faturas/:id/enviar', authenticate, upload.single('comprovante'), async (req, res) => {
     try {
       const { id } = req.params;
       const { enviado_para } = req.body;
+      const comprovante_path = req.file ? `/uploads/${req.file.filename}` : null;
 
       if (!enviado_para) {
         return res.status(400).json({ error: 'Campo "enviado_para" é obrigatório' });
       }
 
-      if (!req.file) {
-        return res.status(400).json({ error: 'Comprovante é obrigatório' });
-      }
-
-      const comprovantePath = `/uploads/${req.file.filename}`;
-
-      const { changes } = await req.db.run(
-        `UPDATE faturas 
-         SET status = 'enviado', 
-             enviado_para = ?, 
-             comprovante_path = ?, 
-             data_envio = datetime('now') 
-         WHERE id = ?`,
-        [enviado_para, comprovantePath, id]
+      await db.run(
+        'UPDATE faturas SET status = "enviado", data_envio = datetime("now"), enviado_para = ?, comprovante_path = ? WHERE id = ?',
+        [enviado_para, comprovante_path, id]
       );
 
-      if (changes === 0) {
-        // Remove o arquivo se a atualização falhou
-        fs.unlinkSync(path.join(UPLOADS_DIR, req.file.filename));
-        return res.status(404).json({ error: 'Fatura não encontrada' });
-      }
+      const faturaAtualizada = await db.get(
+        'SELECT f.*, o.nome AS operadora_nome FROM faturas f JOIN operadoras o ON f.operadora_id = o.id WHERE f.id = ?',
+        [id]
+      );
 
-      res.json({ success: true, message: 'Fatura marcada como enviada' });
+      res.json(faturaAtualizada);
     } catch (err) {
       console.error('Erro ao marcar fatura como enviada:', err);
-      
-      // Remove o arquivo em caso de erro
-      if (req.file) {
-        fs.unlinkSync(path.join(UPLOADS_DIR, req.file.filename));
-      }
-      
       res.status(500).json({ error: 'Erro ao marcar fatura como enviada' });
     }
   });
 
-  // Excluir fatura
-  app.delete('/api/faturas/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      
-      const fatura = await req.db.get(
-        'SELECT comprovante_path FROM faturas WHERE id = ?', 
-        [id]
-      );
-      
-      if (!fatura) {
-        return res.status(404).json({ error: 'Fatura não encontrada' });
-      }
+  // Atualize a rota existente para exigir admin
+  app.delete('/api/faturas/:id', authenticate, isAdmin, async (req, res) => {
+      try {
+          const { id } = req.params;
+          
+          const fatura = await db.get('SELECT * FROM faturas WHERE id = ?', [id]);
+          if (!fatura) {
+              return res.status(404).json({ error: 'Fatura não encontrada' });
+          }
 
-      // Exclui o arquivo se existir
-      if (fatura.comprovante_path) {
-        const filePath = path.join(__dirname, fatura.comprovante_path);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-      }
+          if (fatura.comprovante_path) {
+              const filePath = path.join(__dirname, fatura.comprovante_path);
+              if (fs.existsSync(filePath)) {
+                  fs.unlinkSync(filePath);
+              }
+          }
 
-      const { changes } = await req.db.run(
-        'DELETE FROM faturas WHERE id = ?', 
-        [id]
-      );
-      
-      if (changes === 0) {
-        return res.status(404).json({ error: 'Fatura não encontrada' });
+          await db.run('DELETE FROM faturas WHERE id = ?', [id]);
+          res.json({ success: true });
+      } catch (err) {
+          console.error('Erro ao excluir fatura:', err);
+          res.status(500).json({ error: 'Erro ao excluir fatura' });
       }
-
-      res.json({ success: true, message: 'Fatura excluída com sucesso' });
-    } catch (err) {
-      console.error('Erro ao excluir fatura:', err);
-      res.status(500).json({ error: 'Erro ao excluir fatura' });
-    }
   });
 
   // Notificações
-  app.get('/api/notificacoes', async (req, res) => {
+  app.get('/api/notificacoes', authenticate, async (req, res) => {
     try {
       const hoje = new Date().toISOString().split('T')[0];
       const seteDias = new Date();
       seteDias.setDate(seteDias.getDate() + 7);
       const seteDiasStr = seteDias.toISOString().split('T')[0];
 
-      const faturasProximas = await req.db.all(
+      const faturasProximas = await db.all(
         `SELECT f.id, f.referencia, f.vencimento, o.nome AS operadora_nome 
          FROM faturas f
          JOIN operadoras o ON f.operadora_id = o.id
@@ -366,20 +514,46 @@ async function setupRoutes(db) {
     }
   });
 
-  // Rota para servir arquivos estáticos (se necessário)
+  // Servir arquivos estáticos
   app.use('/uploads', express.static(UPLOADS_DIR));
+  app.use(express.static(path.join(__dirname, '../frontend')));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/index.html'));
+  });
+
+  // Rota para excluir usuário
+  app.delete('/api/usuarios/:id', authenticate, isAdmin, async (req, res) => {
+      try {
+          const { id } = req.params;
+          
+          // Não permitir que o admin se exclua
+          if (req.user.id === parseInt(id)) {
+              return res.status(400).json({ error: 'Você não pode excluir a si mesmo' });
+          }
+
+          await db.run('DELETE FROM usuarios WHERE id = ?', [id]);
+          res.json({ success: true });
+      } catch (err) {
+          console.error('Erro ao excluir usuário:', err);
+          res.status(500).json({ error: 'Erro ao excluir usuário' });
+      }
+  });
 }
 
 // Inicialização do servidor
 (async () => {
   try {
+    if (!process.env.JWT_SECRET) {
+      throw new Error('Variável JWT_SECRET não configurada no arquivo .env');
+    }
+
     const db = await setupDatabase();
     await setupRoutes(db);
 
     app.listen(PORT, () => {
       console.log(`🚀 Servidor rodando na porta ${PORT}`);
       console.log(`🔗 Acesse: http://localhost:${PORT}`);
-      console.log(`⚙️  Modo: ${process.env.NODE_ENV || 'development'}`);
+      console.log('Usuário admin padrão: admin / admin123');
     });
   } catch (err) {
     console.error('❌ Falha ao iniciar o servidor:', err);
