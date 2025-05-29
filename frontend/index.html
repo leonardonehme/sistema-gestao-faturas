@@ -11,52 +11,49 @@
 <body>
     <div class="container">
         <header>
-            <header>
-    <div class="header-top">
-        <div class="header-content">
-            <div class="header-left">
-                <h1><i class="fas fa-file-invoice-dollar"></i> Controle de Faturas</h1>
-            </div>
-            
-            <div class="header-right">
-                <div class="user-info">
-                    <span id="usernameDisplay"></span>
-                    <button onclick="logout()" class="logout-btn">
-                        <i class="fas fa-sign-out-alt"></i> Sair
-                    </button>
+            <div class="header-content">
+                <div class="header-left">
+                    <h1><i class="fas fa-file-invoice-dollar"></i> Controle de Faturas</h1>
                 </div>
                 
-                <div class="notifications">
-                    <i class="fas fa-bell" id="notificacoesBadge"></i>
-                    <div class="notifications-container" id="notificacoesContainer">
-                        <h3>Faturas Próximas do Vencimento</h3>
-                        <ul id="notificacoesList"></ul>
+                <div class="header-right">
+                    <div class="user-info">
+                        <span id="usernameDisplay"></span>
+                        <button onclick="logout()" class="logout-btn">
+                            <i class="fas fa-sign-out-alt"></i> Sair
+                        </button>
+                    </div>
+                    
+                    <div class="notifications">
+                        <i class="fas fa-bell" id="notificacoesBadge"></i>
+                        <div class="notifications-container" id="notificacoesContainer">
+                            <h3>Faturas Próximas do Vencimento</h3>
+                            <ul id="notificacoesList"></ul>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-        
-        <div class="filters">
-            <select id="filterStatus">
-                <option value="">Todas as Faturas</option>
-                <option value="pendente">Pendentes</option>
-                <option value="enviado">Enviadas</option>
-                <option value="vencido">Vencidas</option>
-                <option value="proximo">Próximas do Vencimento</option>
-            </select>
-            <button id="btnNovaFatura"><i class="fas fa-plus"></i> Nova Fatura</button>
-        </div>
+            
+            <div class="filters">
+                <select id="filterStatus">
+                    <option value="">Todas as Faturas</option>
+                    <option value="pendente">Pendentes</option>
+                    <option value="enviado">Enviadas</option>
+                    <option value="vencido">Vencidas</option>
+                    <option value="proximo">Próximas do Vencimento</option>
+                </select>
+                <button id="btnNovaFatura"><i class="fas fa-plus"></i> Nova Fatura</button>
+            </div>
 
-        <div id="adminMenu">
-            <button onclick="abrirCadastroUsuario()" class="btn-admin">
-                <i class="fas fa-user-plus"></i> Cadastrar Usuário
+            <div id="adminMenu">
+                <button onclick="abrirCadastroUsuario()" class="btn-admin">
+                    <i class="fas fa-user-plus"></i> Cadastrar Usuário
                 </button>
-            <button onclick="abrirGerenciamentoUsuarios()" class="btn-admin">
-                <i class="fas fa-users-cog"></i> Gerenciar Usuários
+                <button onclick="abrirGerenciamentoUsuarios()" class="btn-admin">
+                    <i class="fas fa-users-cog"></i> Gerenciar Usuários
                 </button>
             </div>
-        </div>
-    </header>
+        </header>
 
         <div class="stats">
             <div class="stat-card pending">
@@ -111,6 +108,64 @@
             </div>
         </div>
 
+        <div class="modal" id="modalCadastroUsuario">
+            <div class="modal-content">
+                <span class="close" onclick="fecharModalCadastro()">&times;</span>
+                <h2><i class="fas fa-user-plus"></i> Cadastrar Novo Usuário</h2>
+                
+                <form id="formCadastroUsuario">
+                    <div class="form-group">
+                        <label for="novoNome">Nome Completo</label>
+                        <input type="text" id="novoNome" placeholder="Nome completo do usuário">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="novoUsername">Nome de Usuário *</label>
+                        <input type="text" id="novoUsername" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="novaSenha">Senha *</label>
+                        <input type="password" id="novaSenha" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="novoIsAdmin"> Administrador
+                        </label>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" onclick="fecharModalCadastro()" class="btn-cancel">Cancelar</button>
+                        <button type="submit" class="btn-submit">Cadastrar</button>
+                    </div>
+                    
+                    <div id="cadastroError" class="error-message"></div>
+                </form>
+            </div>
+        </div>
+
+        <div class="modal" id="modalUsuarios">
+            <div class="modal-content">
+                <span class="close" onclick="fecharModalUsuarios()">&times;</span>
+                <h2><i class="fas fa-users-cog"></i> Gerenciar Usuários</h2>
+                
+                <div class="table-container">
+                    <table id="tabelaUsuarios">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Usuário</th>
+                                <th>Tipo</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <div class="table-container">
             <table id="tabelaFaturas">
                 <thead>
@@ -128,62 +183,6 @@
         </div>
     </div>
 
-    <!-- Modal de Cadastro de Usuário -->
-    <div id="modalCadastroUsuario" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="fecharModalCadastro()">&times;</span>
-            <h2><i class="fas fa-user-plus"></i> Cadastrar Novo Usuário</h2>
-            
-            <form id="formCadastroUsuario">
-                <div class="form-group">
-                    <label for="novoUsername">Nome de Usuário</label>
-                    <input type="text" id="novoUsername" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="novaSenha">Senha</label>
-                    <input type="password" id="novaSenha" required>
-                </div>
-                
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="novoIsAdmin"> Administrador
-                    </label>
-                </div>
-                
-                <div class="form-actions">
-                    <button type="button" onclick="fecharModalCadastro()" class="btn-cancel">Cancelar</button>
-                    <button type="submit" class="btn-submit">Cadastrar</button>
-                </div>
-                
-                <div id="cadastroError" class="error-message"></div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Modal de Gerenciamento de Usuários -->
-    <div id="modalUsuarios" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="fecharModalUsuarios()">&times;</span>
-            <h2><i class="fas fa-users-cog"></i> Gerenciar Usuários</h2>
-            
-            <div class="table-container">
-                <table id="tabelaUsuarios">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Usuário</th>
-                            <th>Tipo</th>
-                            <th>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Loading Indicator -->
     <div id="loadingIndicator">
         <div class="loading-spinner"></div>
         <p>Carregando...</p>
