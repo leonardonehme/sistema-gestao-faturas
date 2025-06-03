@@ -34,7 +34,8 @@ const elements = {
     notificacoesList: document.getElementById('notificacoesList'),
     notificacoesBadge: document.getElementById('notificacoesBadge'),
     usernameDisplay: document.getElementById('usernameDisplay'),
-    loadingIndicator: document.getElementById('loadingIndicator')
+    loadingIndicator: document.getElementById('loadingIndicator'),
+    adminMenu: document.getElementById('adminMenu') // Adicionei esta linha
 };
 
 // ==================== FUNÇÕES DE AUTENTICAÇÃO ====================
@@ -148,7 +149,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function setupEventListeners() {
-    elements.btnNovaFatura?.addEventListener('click', () => openModal());
+    // Corrigindo o event listener do botão nova fatura
+    if (elements.btnNovaFatura) {
+        elements.btnNovaFatura.addEventListener('click', (e) => {
+            e.preventDefault();
+            openModal();
+        });
+    }
+
     elements.spanClose?.addEventListener('click', () => closeModal());
     window.addEventListener('click', (e) => { 
         if (e.target === elements.modal) closeModal(); 
@@ -220,6 +228,7 @@ function hideLoading() {
 }
 
 function openModal(fatura = null) {
+    console.log('Abrindo modal...'); // Debug
     currentFaturaId = fatura?.id || null;
     isEdit = !!currentFaturaId;
     elements.modalTitle.textContent = isEdit ? 'Editar Fatura' : 'Nova Fatura';
@@ -258,11 +267,37 @@ function closeModal() {
 async function handleSubmit(e) {
     e.preventDefault();
     
+    // Validar e formatar a data
+    const vencimentoValue = elements.vencimento.value;
+    let vencimentoFormatado = '';
+    
+    try {
+        // Converter para formato YYYY-MM-DD
+        if (vencimentoValue) {
+            const dateParts = vencimentoValue.split('/');
+            if (dateParts.length === 3) {
+                // Formato DD/MM/YYYY -> converter para YYYY-MM-DD
+                vencimentoFormatado = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+            } else {
+                // Assumir que já está no formato YYYY-MM-DD
+                vencimentoFormatado = vencimentoValue;
+            }
+            
+            // Validar se é uma data válida
+            if (isNaN(new Date(vencimentoFormatado).getTime())) {
+                throw new Error('Data inválida');
+            }
+        }
+    } catch (error) {
+        mostrarMensagemErro('Formato de data inválido. Use DD/MM/AAAA');
+        return;
+    }
+
     const camposObrigatorios = {
         operadora: elements.operadora.value,
         referencia: elements.referencia.value,
         valor: elements.valor.value,
-        vencimento: elements.vencimento.value
+        vencimento: vencimentoFormatado
     };
 
     const camposFaltando = Object.entries(camposObrigatorios)
@@ -275,15 +310,18 @@ async function handleSubmit(e) {
     }
 
     const dadosFatura = {
-        operadora_id: parseInt(camposObrigatorios.operadora),
-        referencia: camposObrigatorios.referencia,
-        valor: parseFloat(camposObrigatorios.valor),
-        vencimento: camposObrigatorios.vencimento
+    operadora_id: parseInt(camposObrigatorios.operadora),
+    referencia: camposObrigatorios.referencia,
+    valor: parseFloat(camposObrigatorios.valor),
+    data_vencimento: camposObrigatorios.vencimento, // Envia ambos os nomes por segurança
+    vencimento: camposObrigatorios.vencimento
     };
 
     try {
         elements.btnSubmit.disabled = true;
         elements.btnSubmit.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+        console.log('Enviando dados:', dadosFatura); // Para debug
 
         const response = await fetchAuth(isEdit ? `/api/faturas/${currentFaturaId}` : '/api/faturas', {
             method: isEdit ? 'PUT' : 'POST',
@@ -314,6 +352,7 @@ async function handleSubmit(e) {
         elements.btnSubmit.innerHTML = isEdit ? 'Atualizar' : 'Salvar';
     }
 }
+
 
 async function carregarOperadoras() {
     try {
@@ -378,9 +417,15 @@ function renderizarFaturas(faturas) {
         
         return `
             <tr class="${statusClass}">
+                <td>
+                    <input type="checkbox" class="enviado-checkbox" 
+                           data-id="${fatura.id}" 
+                           ${fatura.status === 'enviado' ? 'checked' : ''}
+                           ${fatura.status === 'enviado' ? 'disabled' : ''}>
+                </td>
                 <td>${operadora.nome || 'N/A'}</td>
                 <td>${fatura.referencia || ''}</td>
-                <td>R$ ${fatura.valor?.toFixed(2) || '0.00'}</td>
+                <td>R$ ${Number(fatura.valor).toFixed(2)}</td>
                 <td>${vencimentoDate?.toLocaleDateString() || ''}</td>
                 <td class="status-cell">${statusText}</td>
                 <td class="actions">
@@ -398,6 +443,34 @@ function renderizarFaturas(faturas) {
             </tr>
         `;
     }).join('');
+
+    // Configurar eventos dos checkboxes
+    document.querySelectorAll('.enviado-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', async (e) => {
+            if (e.target.checked) {
+                try {
+                    showLoading();
+                    await fetchAuth(`/api/faturas/${e.target.dataset.id}/enviar`, {
+                        method: 'PUT',
+                        body: JSON.stringify({
+                            enviado_para: 'Marcado via interface'
+                        })
+                    });
+                    await carregarFaturas();
+                    mostrarMensagemSucesso('Fatura marcada como enviada!');
+                } catch (error) {
+                    console.error('Erro ao marcar fatura como enviada:', error);
+                    mostrarMensagemErro('Erro ao marcar fatura como enviada');
+                    e.target.checked = false;
+                } finally {
+                    hideLoading();
+                }
+            }
+        });
+    });
+
+    // Configurar eventos dos botões (mantenha o restante do código existente)
+    // ...
 
     // Configurar eventos dos botões
     document.querySelectorAll('.btn-edit').forEach(btn => {
@@ -425,20 +498,27 @@ function renderizarFaturas(faturas) {
 }
 
 function atualizarContadores() {
-    const [pendentes, proximas, vencidas] = listaFaturas.reduce((acc, fatura) => {
-        if (fatura.status === 'enviado') return acc;
+    const [enviadas, pendentes, proximas, vencidas] = listaFaturas.reduce((acc, fatura) => {
+        if (fatura.status === 'enviado') {
+            acc[0]++;
+            return acc;
+        }
         
         const vencimento = fatura.vencimento ? new Date(fatura.vencimento) : null;
         const hoje = new Date();
         const diffDays = vencimento ? Math.ceil((vencimento - hoje) / (86400000)) : 0;
         
-        if (diffDays < 0) acc[2]++;
-        else if (diffDays <= 7) acc[1]++;
-        else acc[0]++;
+        if (diffDays < 0) acc[3]++;
+        else if (diffDays <= 7) acc[2]++;
+        else acc[1]++;
         
         return acc;
-    }, [0, 0, 0]);
+    }, [0, 0, 0, 0]);
 
+    // Adicione um elemento no HTML para mostrar as enviadas
+    const countSent = document.getElementById('countSent');
+    if (countSent) countSent.textContent = enviadas;
+    
     elements.countPending.textContent = pendentes;
     elements.countDueSoon.textContent = proximas;
     elements.countOverdue.textContent = vencidas;
@@ -532,9 +612,9 @@ async function excluirUsuario(id) {
 
 function verificarAdmin() {
     const user = JSON.parse(localStorage.getItem('user'));
-    const adminMenu = document.getElementById('adminMenu');
-    if (adminMenu) {
-        adminMenu.style.display = user?.isAdmin ? 'block' : 'none';
+    if (elements.adminMenu) {
+        elements.adminMenu.style.display = user?.isAdmin ? 'block' : 'none';
+        console.log('Menu admin visível:', elements.adminMenu.style.display); // Debug
     }
 }
 

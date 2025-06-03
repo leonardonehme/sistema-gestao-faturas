@@ -317,20 +317,16 @@ app.get('/api/faturas', authenticate, async (req, res) => {
 
 app.post('/api/faturas', authenticate, async (req, res) => {
   try {
-    const { operadora_id, referencia, valor, vencimento } = req.body;
+    const { operadora_id, referencia, valor, vencimento, data_vencimento } = req.body;
     
-    // Validação reforçada
-    if (!operadora_id || !referencia || !valor || !vencimento) {
+    // Aceita ambos os nomes de campo
+    const dataVencimento = vencimento || data_vencimento;
+    
+    if (!operadora_id || !referencia || !valor || !dataVencimento) {
       return res.status(400).json({ 
         error: 'Todos os campos são obrigatórios',
-        required: ['operadora_id', 'referencia', 'valor', 'vencimento']
+        required: ['operadora_id', 'referencia', 'valor', 'vencimento/data_vencimento']
       });
-    }
-
-    // Verifica se a operadora existe
-    const operadoraCheck = await pool.query('SELECT 1 FROM operadoras WHERE id = $1', [operadora_id]);
-    if (operadoraCheck.rows.length === 0) {
-      return res.status(400).json({ error: 'Operadora não encontrada' });
     }
 
     const result = await pool.query(
@@ -338,31 +334,12 @@ app.post('/api/faturas', authenticate, async (req, res) => {
        (operadora_id, referencia, valor, vencimento, usuario_id, status) 
        VALUES ($1, $2, $3, $4, $5, 'pendente')
        RETURNING *`,
-      [operadora_id, referencia, parseFloat(valor), vencimento, req.user.id]
+      [operadora_id, referencia, parseFloat(valor), dataVencimento, req.user.id]
     );
 
-    // Obter dados completos da fatura com nome da operadora
-    const faturaCompleta = await pool.query(
-      `SELECT f.*, o.nome AS operadora_nome 
-       FROM faturas f 
-       JOIN operadoras o ON f.operadora_id = o.id 
-       WHERE f.id = $1`,
-      [result.rows[0].id]
-    );
-
-    res.status(201).json(faturaCompleta.rows[0]);
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Erro ao criar fatura:', err);
-    
-    // Tratamento específico para erros de banco de dados
-    if (err.code === '23502') { // Violação de NOT NULL
-      const column = err.column || 'coluna desconhecida';
-      return res.status(400).json({ 
-        error: `Campo obrigatório faltando: ${column}`,
-        details: err.message
-      });
-    }
-    
     res.status(500).json({ 
       error: 'Erro ao criar fatura',
       details: err.message 
@@ -466,6 +443,48 @@ app.put('/api/faturas/:id/enviar', authenticate, upload.single('comprovante'), a
   } catch (err) {
     console.error('Erro ao marcar fatura como enviada:', err);
     res.status(500).json({ error: 'Erro ao marcar fatura como enviada', details: err.message });
+  }
+});
+
+app.put('/api/faturas/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { operadora_id, referencia, valor, vencimento, data_vencimento } = req.body;
+    
+    // Aceita ambos os nomes de campo
+    const dataVencimento = vencimento || data_vencimento;
+    
+    if (!operadora_id || !referencia || !valor || !dataVencimento) {
+      return res.status(400).json({ 
+        error: 'Todos os campos são obrigatórios',
+        required: ['operadora_id', 'referencia', 'valor', 'vencimento/data_vencimento']
+      });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE faturas 
+       SET operadora_id = $1, 
+           referencia = $2, 
+           valor = $3, 
+           vencimento = $4,
+           status = 'pendente'  -- Reset status on update
+       WHERE id = $5
+       RETURNING *`,
+      [operadora_id, referencia, parseFloat(valor), dataVencimento, id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Fatura não encontrada' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Erro ao atualizar fatura:', err);
+    res.status(500).json({ 
+      error: 'Erro ao atualizar fatura',
+      details: err.message,
+      stack: err.stack  // Isso ajuda a identificar exatamente onde está o erro
+    });
   }
 });
 
